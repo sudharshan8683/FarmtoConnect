@@ -16,3 +16,6 @@ jobs:
         env:
           DATA_GOV_IN_API_KEY: ${{ secrets.DATA_GOV_IN_API_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      - run: python ai-service/data_pipeline/scrapers/weather_feed.py
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
