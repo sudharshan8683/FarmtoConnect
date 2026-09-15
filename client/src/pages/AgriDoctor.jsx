@@ -1,0 +1,542 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  Stethoscope, Sparkles, Mic, MicOff, AlertCircle, CheckCircle2, Leaf, 
+  Shield, Droplets, RefreshCw, Send, Globe, ChevronRight, Camera, Upload, 
+  Image as ImageIcon, Check, Info, FileText, Bug
+} from 'lucide-react';
+import Card from '../components/common/Card';
+import Button from '../components/common/Button';
+import toast from 'react-hot-toast';
+import api from '../api/axios';
+
+const AgriDoctor = () => {
+  const [activeMode, setActiveMode] = useState('image'); // 'image' or 'voice'
+  const [cropName, setCropName] = useState('Tomato');
+  const [symptoms, setSymptoms] = useState('');
+  const [soilType, setSoilType] = useState('Red Loam');
+  const [region, setRegion] = useState('Maharashtra');
+  const [language, setLanguage] = useState('en'); // 'en', 'hi', 'ta', 'mr'
+  const [isDiagnosing, setIsDiagnosing] = useState(false);
+  const [diagnosisResult, setDiagnosisResult] = useState(null);
+  const [isListening, setIsListening] = useState(false);
+
+  // Leaf Photo State
+  const [selectedImageFile, setSelectedImageFile] = useState(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState(null);
+  const fileInputRef = useRef(null);
+
+  const recognitionRef = useRef(null);
+
+  useEffect(() => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const rec = new SpeechRecognition();
+      rec.continuous = false;
+      rec.interimResults = false;
+      const langCodeMap = { 'ta': 'ta-IN', 'hi': 'hi-IN', 'mr': 'mr-IN', 'en': 'en-IN' };
+      rec.lang = langCodeMap[language] || 'en-IN';
+
+      rec.onstart = () => setIsListening(true);
+      rec.onend = () => setIsListening(false);
+      rec.onresult = (e) => {
+        const text = e.results[0][0].transcript;
+        setSymptoms(prev => prev ? `${prev} ${text}` : text);
+      };
+      recognitionRef.current = rec;
+    }
+  }, [language]);
+
+  const toggleMic = () => {
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+    } else {
+      try {
+        recognitionRef.current?.start();
+      } catch (e) {
+        toast.error('Could not access microphone');
+      }
+    }
+  };
+
+  const handleImageSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setSelectedImageFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreviewUrl(reader.result);
+      };
+      reader.readAsDataURL(file);
+      toast.success(`Loaded leaf photo: ${file.name}`);
+    }
+  };
+
+  const handleImageDiagnose = async (e) => {
+    e?.preventDefault();
+    if (!selectedImageFile && !imagePreviewUrl) {
+      toast.error('Please upload or capture a leaf photo first');
+      return;
+    }
+
+    setIsDiagnosing(true);
+    setDiagnosisResult(null);
+
+    try {
+      const formData = new FormData();
+      if (selectedImageFile) {
+        formData.append('file', selectedImageFile);
+      } else {
+        formData.append('image', imagePreviewUrl);
+      }
+      formData.append('crop', cropName);
+
+      const res = await api.post('/ai/diagnose', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+
+      if (res.data?.success && res.data?.data) {
+        setDiagnosisResult({
+          type: 'vision',
+          ...res.data.data
+        });
+        toast.success(`ResNet50 Identified: ${res.data.data.disease_name}!`);
+      } else {
+        toast.error('Diagnosis could not identify disease pattern');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Vision diagnosis failed. Ensure AI service is running.');
+    } finally {
+      setIsDiagnosing(false);
+    }
+  };
+
+  const handleVoiceDiagnose = async (e) => {
+    e?.preventDefault();
+    if (!symptoms.trim()) {
+      toast.error('Please describe crop symptoms or issues');
+      return;
+    }
+
+    setIsDiagnosing(true);
+    setDiagnosisResult(null);
+
+    try {
+      const res = await api.post('/copilot/diagnose', {
+        cropName,
+        symptoms,
+        soilType,
+        region,
+        language
+      });
+
+      setDiagnosisResult({
+        type: 'voice_text',
+        diagnosis: res.data.data.diagnosis
+      });
+      toast.success('Diagnosis completed by Kisan Doctor!');
+    } catch (err) {
+      toast.error('Diagnosis failed. Please try again.');
+    } finally {
+      setIsDiagnosing(false);
+    }
+  };
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* Header Banner */}
+      <div className="bg-gradient-to-r from-emerald-950 via-slate-900 to-teal-950 text-white p-8 rounded-3xl shadow-xl mb-8 relative overflow-hidden border border-emerald-500/20">
+        <div className="relative z-10">
+          <div className="inline-flex items-center gap-2 bg-emerald-400/20 text-emerald-200 px-3.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider mb-3 border border-emerald-400/30">
+            <Stethoscope size={14} className="text-emerald-300 animate-pulse" /> AI Crop Doctor (ResNet50 Vision & Voice Diagnostics)
+          </div>
+          <h1 className="text-3xl md:text-4xl font-extrabold mb-3">
+            Kisan Agri-Doctor (????? ??? ?????? / ????? ??????????)
+          </h1>
+          <p className="text-emerald-100 max-w-3xl text-sm md:text-base leading-relaxed">
+            Diagnose plant diseases from **leaf photos using ResNet50 Deep Transfer Learning** (PlantVillage 38 classes) or speak symptoms in native **Tamil**, **Hindi**, or **English**.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        {/* Left: Input Form */}
+        <div className="lg:col-span-5 space-y-6">
+          <Card className="p-6 border border-gray-200 shadow-md">
+            {/* Mode Switcher */}
+            <div className="flex bg-gray-100 p-1 rounded-xl mb-5">
+              <button
+                type="button"
+                onClick={() => setActiveMode('image')}
+                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                  activeMode === 'image'
+                    ? 'bg-white text-emerald-800 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <Camera size={14} className="text-emerald-600" /> Leaf Photo AI (ResNet50)
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveMode('voice')}
+                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                  activeMode === 'voice'
+                    ? 'bg-white text-emerald-800 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <Mic size={14} className="text-emerald-600" /> Voice & Symptoms
+              </button>
+            </div>
+
+            {/* Language Selector */}
+            <div className="mb-4">
+              <label className="block text-xs font-bold text-gray-700 mb-1.5 flex items-center gap-1">
+                <Globe size={13} className="text-primary" /> Advice Language (????? ????)
+              </label>
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { id: 'ta', label: '?????' },
+                  { id: 'hi', label: '?????' },
+                  { id: 'mr', label: '?????' },
+                  { id: 'en', label: 'English' }
+                ].map(l => (
+                  <button
+                    type="button"
+                    key={l.id}
+                    onClick={() => setLanguage(l.id)}
+                    className={`py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                      language === l.id
+                        ? 'bg-primary text-white border-primary shadow-sm'
+                        : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+                    }`}
+                  >
+                    {l.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Crop Selection */}
+            <div className="mb-4">
+              <label className="block text-xs font-bold text-gray-700 mb-1">Crop (????? / ???)</label>
+              <select
+                value={cropName}
+                onChange={(e) => setCropName(e.target.value)}
+                className="w-full border border-gray-300 rounded-xl p-2.5 text-xs bg-white font-medium focus:ring-2 focus:ring-primary focus:outline-none"
+              >
+                <option value="Tomato">Tomato (??????? / ?????)</option>
+                <option value="Potato">Potato (?????????????? / ???)</option>
+                <option value="Corn (Maize)">Corn / Maize (???????????? / ?????)</option>
+                <option value="Apple">Apple (??????? / ???)</option>
+                <option value="Grape">Grape (???????? / ?????)</option>
+                <option value="Bell Pepper">Bell Pepper (??????????? / ????? ?????)</option>
+                <option value="Strawberry">Strawberry (??????????)</option>
+                <option value="Soybean">Soybean (????????)</option>
+                <option value="Orange">Orange / Citrus (??????)</option>
+                <option value="Paddy (Rice)">Paddy / Rice (???? / ???)</option>
+              </select>
+            </div>
+
+            {/* TAB 1: Leaf Photo Upload Mode */}
+            {activeMode === 'image' && (
+              <form onSubmit={handleImageDiagnose} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1.5">
+                    Upload Diseased Leaf Photo (ResNet50 Transfer Learning)
+                  </label>
+                  
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleImageSelect}
+                    accept="image/*"
+                    className="hidden"
+                  />
+
+                  {imagePreviewUrl ? (
+                    <div className="relative border-2 border-emerald-300 rounded-2xl p-2 bg-emerald-50/50 flex flex-col items-center">
+                      <img 
+                        src={imagePreviewUrl} 
+                        alt="Leaf preview" 
+                        className="max-h-48 rounded-xl object-contain shadow-sm mb-2"
+                      />
+                      <div className="flex gap-2 w-full">
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="flex-1 text-xs py-1.5 bg-white border border-gray-300 rounded-lg font-bold text-gray-700 hover:bg-gray-50"
+                        >
+                          Change Photo
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setSelectedImageFile(null); setImagePreviewUrl(null); }}
+                          className="text-xs py-1.5 px-3 bg-red-50 text-red-600 rounded-lg font-bold hover:bg-red-100"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      onClick={() => fileInputRef.current?.click()}
+                      className="border-2 border-dashed border-gray-300 hover:border-emerald-500 rounded-2xl p-6 text-center cursor-pointer transition-colors bg-gray-50 hover:bg-emerald-50/30"
+                    >
+                      <Camera size={36} className="mx-auto text-emerald-600 mb-2 animate-bounce" />
+                      <p className="text-xs font-bold text-gray-700">Click to upload or take a leaf photo</p>
+                      <p className="text-[11px] text-gray-500 mt-1">Supports JPEG, PNG, WebP (PlantVillage 38 Disease Classes)</p>
+                    </div>
+                  )}
+                </div>
+
+                <Button
+                  type="submit"
+                  disabled={isDiagnosing || !imagePreviewUrl}
+                  className="w-full py-3 flex items-center justify-center gap-2 font-bold text-xs shadow-md bg-emerald-600 hover:bg-emerald-700 text-white"
+                >
+                  {isDiagnosing ? (
+                    <>
+                      <RefreshCw size={15} className="animate-spin" /> Analyzing leaf with ResNet50 Neural Model...
+                    </>
+                  ) : (
+                    <>
+                      <Stethoscope size={16} /> Diagnose Leaf Photo
+                    </>
+                  )}
+                </Button>
+              </form>
+            )}
+
+            {/* TAB 2: Voice & Symptom Mode */}
+            {activeMode === 'voice' && (
+              <form onSubmit={handleVoiceDiagnose} className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">State / Region</label>
+                    <select
+                      value={region}
+                      onChange={(e) => setRegion(e.target.value)}
+                      className="w-full border border-gray-300 rounded-xl p-2 text-xs bg-white font-medium focus:ring-2 focus:ring-primary focus:outline-none"
+                    >
+                      <option value="Maharashtra">Maharashtra</option>
+                      <option value="Tamil Nadu">Tamil Nadu</option>
+                      <option value="Punjab">Punjab</option>
+                      <option value="Karnataka">Karnataka</option>
+                      <option value="Andhra Pradesh">Andhra Pradesh</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Soil Type</label>
+                    <select
+                      value={soilType}
+                      onChange={(e) => setSoilType(e.target.value)}
+                      className="w-full border border-gray-300 rounded-xl p-2 text-xs bg-white font-medium focus:ring-2 focus:ring-primary focus:outline-none"
+                    >
+                      <option value="Black Clay (Regur)">Black Soil (???? ????)</option>
+                      <option value="Red Loam">Red Soil (???????)</option>
+                      <option value="Alluvial Soil">Alluvial Soil</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-xs font-bold text-gray-700">Observed Symptoms / Damage</label>
+                    <button
+                      type="button"
+                      onClick={toggleMic}
+                      className={`text-xs flex items-center gap-1 font-bold px-2 py-1 rounded-lg transition-colors ${
+                        isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-green-100 text-green-800 hover:bg-green-200'
+                      }`}
+                    >
+                      {isListening ? <MicOff size={13} /> : <Mic size={13} />}
+                      {isListening ? 'Listening...' : 'Speak Symptoms'}
+                    </button>
+                  </div>
+                  <textarea
+                    rows="3"
+                    required
+                    value={symptoms}
+                    onChange={(e) => setSymptoms(e.target.value)}
+                    placeholder="e.g. Concentric brown rings on lower leaves, yellow margins, curling tips..."
+                    className="w-full border border-gray-300 rounded-xl p-2.5 text-xs focus:ring-2 focus:ring-primary focus:outline-none leading-relaxed"
+                  />
+                </div>
+
+                <div>
+                  <p className="text-[11px] font-bold text-gray-500 mb-1">Quick Symptom Presets:</p>
+                  <div className="space-y-1">
+                    {[
+                      'Concentric circular brown rings resembling target board (Early Blight)',
+                      'White talcum powdery coating on upper leaves (Powdery Mildew)',
+                      'Upward curling of leaflets with yellow veins and stunting (TYLCV)',
+                      'Water-soaked dark lesions rapidly rotting fruit (Late Blight)'
+                    ].map((s, idx) => (
+                      <button
+                        type="button"
+                        key={idx}
+                        onClick={() => setSymptoms(s)}
+                        className="w-full text-left text-[11px] p-1.5 bg-gray-50 hover:bg-emerald-50 border border-gray-200 rounded-lg text-gray-700 transition-colors flex items-center justify-between"
+                      >
+                        <span className="truncate">{s}</span>
+                        <ChevronRight size={11} className="text-gray-400 shrink-0" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <Button
+                  type="submit"
+                  disabled={isDiagnosing}
+                  className="w-full py-3 flex items-center justify-center gap-2 font-bold text-xs shadow-md"
+                >
+                  {isDiagnosing ? (
+                    <>
+                      <RefreshCw size={15} className="animate-spin" /> Diagnosing with Kisan Doctor...
+                    </>
+                  ) : (
+                    <>
+                      <Stethoscope size={16} /> Get Agronomy Advice
+                    </>
+                  )}
+                </Button>
+              </form>
+            )}
+          </Card>
+        </div>
+
+        {/* Right: AI Diagnosis Results */}
+        <div className="lg:col-span-7 space-y-6">
+          <Card className="p-6 border border-gray-200 shadow-md">
+            <h3 className="font-bold text-gray-900 text-lg mb-1 flex items-center gap-2">
+              <Sparkles className="text-amber-500" size={20} /> Agronomy Diagnosis & Prescription
+            </h3>
+            <p className="text-xs text-gray-500 mb-5">
+              Powered by ResNet50 Transfer Learning on PlantVillage (38 Pathology Classes) & Integrated Pest Management (IPM).
+            </p>
+
+            {diagnosisResult ? (
+              <div className="space-y-5 animate-in fade-in duration-300">
+                {/* Vision Diagnosis Result (ResNet50) */}
+                {diagnosisResult.type === 'vision' && (
+                  <>
+                    <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 rounded-2xl p-5 shadow-sm">
+                      <div className="flex justify-between items-start mb-3">
+                        <div>
+                          <div className="inline-flex items-center gap-1.5 bg-emerald-600 text-white text-[11px] font-bold px-2.5 py-0.5 rounded-full mb-1">
+                            <Leaf size={12} /> {diagnosisResult.crop} Leaf Pathology
+                          </div>
+                          <h4 className="text-xl font-extrabold text-emerald-950">
+                            {diagnosisResult.disease_name}
+                          </h4>
+                          <p className="text-xs text-emerald-800 font-medium mt-0.5">
+                            <span className="font-bold">Pathogen:</span> {diagnosisResult.pathogen}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-2xl font-black text-emerald-700">
+                            {diagnosisResult.confidence}%
+                          </span>
+                          <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">Confidence</p>
+                        </div>
+                      </div>
+
+                      {/* Symptoms */}
+                      <div className="bg-white/80 backdrop-blur-sm border border-emerald-200/60 rounded-xl p-3 text-xs text-emerald-900 mb-4">
+                        <p className="font-bold text-emerald-950 mb-1 flex items-center gap-1">
+                          <Info size={13} className="text-emerald-700" /> Observed Symptoms:
+                        </p>
+                        <p className="leading-relaxed">{diagnosisResult.symptoms}</p>
+                      </div>
+
+                      {/* Regional Language Translation (Tamil / Hindi) */}
+                      {(language === 'ta' && diagnosisResult.multilingual?.tamil) && (
+                        <div className="bg-amber-50/90 border border-amber-200 rounded-xl p-3 text-xs text-amber-950 mb-4 font-medium">
+                          <p className="font-bold text-amber-900 mb-1 flex items-center gap-1">
+                            ?? ????? ???????? ??????:
+                          </p>
+                          <p className="leading-relaxed">{diagnosisResult.multilingual.tamil}</p>
+                        </div>
+                      )}
+                      {(language === 'hi' && diagnosisResult.multilingual?.hindi) && (
+                        <div className="bg-amber-50/90 border border-amber-200 rounded-xl p-3 text-xs text-amber-950 mb-4 font-medium">
+                          <p className="font-bold text-amber-900 mb-1 flex items-center gap-1">
+                            ?? ????? ????? ???????:
+                          </p>
+                          <p className="leading-relaxed">{diagnosisResult.multilingual.hindi}</p>
+                        </div>
+                      )}
+
+                      {/* Treatment Protocols Grid */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                        <div className="bg-white border border-green-200 rounded-xl p-3.5 shadow-2xs">
+                          <div className="flex items-center gap-1.5 font-bold text-green-800 mb-1.5">
+                            <Leaf size={14} className="text-green-600" /> Organic IPM Remedy (????? ???????)
+                          </div>
+                          <p className="text-[11px] text-gray-700 leading-relaxed">
+                            {diagnosisResult.treatment?.organic}
+                          </p>
+                        </div>
+
+                        <div className="bg-white border border-blue-200 rounded-xl p-3.5 shadow-2xs">
+                          <div className="flex items-center gap-1.5 font-bold text-blue-800 mb-1.5">
+                            <Shield size={14} className="text-blue-600" /> Chemical Control (????? ???????)
+                          </div>
+                          <p className="text-[11px] text-gray-700 leading-relaxed">
+                            {diagnosisResult.treatment?.chemical}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* Voice / Text Diagnosis Result */}
+                {diagnosisResult.type === 'voice_text' && (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-5">
+                    <div className="flex items-center gap-2 text-emerald-800 font-bold text-sm mb-3">
+                      <CheckCircle2 size={18} className="text-emerald-600" /> Diagnosis for {cropName} ({soilType}, {region})
+                    </div>
+                    <div className="text-xs text-emerald-950 leading-relaxed whitespace-pre-wrap font-medium">
+                      {diagnosisResult.diagnosis}
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                  <div className="bg-green-50 border border-green-200 p-3 rounded-xl">
+                    <Leaf className="text-green-600 mb-1" size={16} />
+                    <h5 className="font-bold text-green-900 text-xs mb-0.5">Organic First</h5>
+                    <p className="text-green-800 text-[10px]">Neem oil & bio-fungicides reduce chemical residue.</p>
+                  </div>
+                  <div className="bg-blue-50 border border-blue-200 p-3 rounded-xl">
+                    <Droplets className="text-blue-600 mb-1" size={16} />
+                    <h5 className="font-bold text-blue-900 text-xs mb-0.5">Irrigation Care</h5>
+                    <p className="text-blue-800 text-[10px]">Avoid evening flooding to stop spore proliferation.</p>
+                  </div>
+                  <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl">
+                    <Shield className="text-amber-600 mb-1" size={16} />
+                    <h5 className="font-bold text-amber-900 text-xs mb-0.5">PMKSY Subsidy</h5>
+                    <p className="text-amber-800 text-[10px]">Apply for drip irrigation govt schemes.</p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="border-2 border-dashed border-gray-200 rounded-2xl p-12 text-center text-gray-400">
+                <Stethoscope size={40} className="mx-auto mb-3 text-gray-300" />
+                <p className="text-sm font-semibold text-gray-600 mb-1">No Active Diagnosis</p>
+                <p className="text-xs text-gray-400 max-w-sm mx-auto">
+                  Upload a photo of your crop leaf on the left or speak symptoms to generate instant ResNet50 pathology analysis and prescription.
+                </p>
+              </div>
+            )}
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default AgriDoctor;
